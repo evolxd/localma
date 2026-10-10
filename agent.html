@@ -84,12 +84,13 @@ function decodePayload(hash) {
 
 var TASK = decodePayload(location.hash);
 var KEY = "localma_agent_" + (TASK ? (TASK.store || "") + "_" + (TASK.date || "") + "_" + TASK.items.length : "none");
+var attempted = false;
 var answers = {};
 try { answers = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { answers = {}; }
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (e) { /* storage unavailable */ } }
 
 function ans(id) {
-  if (!answers[id]) answers[id] = { spec: "", price: "", missing: false, note: "" };
+  if (!answers[id]) answers[id] = { spec: "", price: "", missing: false, note: "", touched: false };
   return answers[id];
 }
 
@@ -140,6 +141,13 @@ function render() {
   TASK.items.forEach(function (item) {
     var a = ans(item.id);
     var card = el("div", "card" + (problems(item).length === 0 ? " done" : ""));
+    var errEl = el("div", "err");
+    // Errors stay hidden until the field was touched or the user tried to submit.
+    function refresh() {
+      var errs = problems(item);
+      errEl.textContent = (attempted || a.touched) ? errs.join(";") : "";
+      card.className = "card" + (errs.length === 0 ? " done" : "");
+    }
     var head = el("div");
     head.appendChild(el("span", "id", item.id));
     head.appendChild(document.createTextNode(" " + (item.name || "(名称待确认)")));
@@ -151,10 +159,10 @@ function render() {
     if (sub.length) card.appendChild(el("div", "hint", sub.join(" · ")));
 
     var spec = el("input"); spec.type = "text"; spec.placeholder = "例如 400G、1KG、5.5LB"; spec.value = a.spec;
-    spec.addEventListener("input", function () { a.spec = spec.value; persist(); status(); });
+    spec.addEventListener("input", function () { a.spec = spec.value; a.touched = true; persist(); refresh(); status(); });
     var price = el("input"); price.type = "number"; price.step = "0.01"; price.min = "0";
     price.setAttribute("inputmode", "decimal"); price.placeholder = "标签上的价格,如 3.28"; price.value = a.price;
-    price.addEventListener("input", function () { a.price = price.value; persist(); status(); });
+    price.addEventListener("input", function () { a.price = price.value; a.touched = true; persist(); refresh(); status(); });
     if (item.missing.indexOf("规格") >= 0) card.appendChild(field("规格(包装上的净含量)", spec));
     if (item.missing.indexOf("价格") >= 0) card.appendChild(field("价格($,价签上的数字)", price));
 
@@ -169,8 +177,8 @@ function render() {
     chk.appendChild(document.createTextNode("店里没有这个商品 / 找不到"));
     card.appendChild(chk);
 
-    var errs = problems(item);
-    if (errs.length) card.appendChild(el("div", "err", errs.join(";")));
+    card.appendChild(errEl);
+    refresh();
     list.appendChild(card);
   });
   status();
@@ -202,6 +210,8 @@ $("make").addEventListener("click", function () {
   if (!TASK) return;
   var bad = TASK.items.filter(function (i) { return problems(i).length > 0; });
   if (bad.length) {
+    attempted = true;
+    render();
     alert("还有 " + bad.length + " 项没填完:" + bad.map(function (i) { return i.id; }).join("、"));
     return;
   }
