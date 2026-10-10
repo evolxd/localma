@@ -92,7 +92,7 @@ try { answers = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { ans
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (e) { /* storage unavailable */ } }
 
 function ans(id) {
-  if (!answers[id]) answers[id] = { spec: "", price: "", missing: false, note: "", touched: false };
+  if (!answers[id]) answers[id] = { name: "", spec: "", price: "", missing: false, note: "", touched: false };
   return answers[id];
 }
 
@@ -102,6 +102,7 @@ function problems(item) {
   var p = [];
   var needSpec = item.missing.indexOf("规格") >= 0;
   var needPrice = item.missing.indexOf("价格") >= 0;
+  if (item.missing.indexOf("品名") >= 0 && !String(a.name || "").trim()) p.push("请填写包装上看到的品名");
   if (needSpec && !String(a.spec).trim()) p.push("请填写规格(如 400G)");
   if (needPrice) {
     var n = Number(String(a.price).replace(/[$\s]/g, ""));
@@ -159,6 +160,17 @@ function render() {
     if (item.sec) sub.push("视频约第 " + item.sec + " 秒");
     if (item.hint) sub.push("视频里读到:" + item.hint);
     if (sub.length) card.appendChild(el("div", "hint", sub.join(" · ")));
+    if (item.tag_only) {
+      card.appendChild(el("div", "hint",
+        "⚠ 视频里只拍到了这个商品的价签(通常在画面最上沿),商品本身没入镜。" +
+        "请找到写着这个名称的价签,把商品包装和价签一起拍清楚。画面中间看到的不是它。"));
+    }
+    if (item.where) card.appendChild(el("div", "hint", "位置:" + item.where));
+    if (item.missing.indexOf("品名") >= 0) {
+      card.appendChild(el("div", "hint",
+        "⚠ 这个商品的品名我们没法从视频里判断。请到视频里这个位置,重拍包装正面(要能看清品名和净含量)、" +
+        "价签、整排货架各一张,把照片发到微信并标上编号 " + item.id + "。"));
+    }
     if (TASK.media && item.sec) {
       // Frames were sampled once per second, frame N is at (N - 1) seconds.
       var start = Math.max(0, Number(item.sec) - 1);
@@ -183,6 +195,9 @@ function render() {
     var price = el("input"); price.type = "number"; price.step = "0.01"; price.min = "0";
     price.setAttribute("inputmode", "decimal"); price.placeholder = "标签上的价格,如 3.28"; price.value = a.price;
     price.addEventListener("input", function () { a.price = price.value; a.touched = true; persist(); refresh(); status(); });
+    var nameIn = el("input"); nameIn.type = "text"; nameIn.placeholder = "包装正面上的品牌和品名"; nameIn.value = a.name || "";
+    nameIn.addEventListener("input", function () { a.name = nameIn.value; a.touched = true; persist(); refresh(); status(); });
+    if (item.missing.indexOf("品名") >= 0) card.appendChild(field("品名(包装正面上的品牌 + 名称)", nameIn));
     if (item.missing.indexOf("规格") >= 0) card.appendChild(field("规格(包装上的净含量)", spec));
     if (item.missing.indexOf("价格") >= 0) card.appendChild(field("价格($,价签上的数字)", price));
 
@@ -218,6 +233,7 @@ function buildReply() {
     var a = ans(item.id);
     if (a.missing) { lines.push(item.id + "|缺货=1" + (a.note ? "|备注=" + clean(a.note) : "")); return; }
     var parts = [item.id];
+    if (item.missing.indexOf("品名") >= 0) parts.push("品名=" + clean(a.name));
     if (item.missing.indexOf("规格") >= 0) parts.push("规格=" + clean(a.spec));
     if (item.missing.indexOf("价格") >= 0) parts.push("价格=" + String(Number(String(a.price).replace(/[$\s]/g, ""))));
     if (a.note) parts.push("备注=" + clean(a.note));
@@ -238,7 +254,10 @@ $("make").addEventListener("click", function () {
   $("reply").value = buildReply();
   $("result").style.display = "block";
   $("result").scrollIntoView && $("result").scrollIntoView();
-  if (navigator.share) $("share").style.display = "inline-block";
+  // The system share sheet is only useful on phones; on desktop it opens a confusing OS panel.
+  var isPhone = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "") ||
+                (window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  if (navigator.share && isPhone) $("share").style.display = "inline-block";
 });
 $("copy").addEventListener("click", function () {
   var t = $("reply");
