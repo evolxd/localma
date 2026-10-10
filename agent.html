@@ -38,6 +38,8 @@
   textarea.out { min-height:220px; font-size:14px; font-family:ui-monospace,Consolas,monospace; }
   #result { display:none; }
   .step { font-size:14px; margin:8px 0; }
+  .clip { width:100%; max-height:46vh; background:#000; border-radius:8px; margin-top:8px; }
+  .clip-cap { font-size:12px; color:var(--mut); margin-top:2px; }
 </style>
 </head>
 <body>
@@ -157,6 +159,24 @@ function render() {
     if (item.sec) sub.push("视频约第 " + item.sec + " 秒");
     if (item.hint) sub.push("视频里读到:" + item.hint);
     if (sub.length) card.appendChild(el("div", "hint", sub.join(" · ")));
+    if (TASK.media && item.sec) {
+      // Frames were sampled once per second, frame N is at (N - 1) seconds.
+      var start = Math.max(0, Number(item.sec) - 1);
+      var clip = el("video", "clip");
+      clip.setAttribute("controls", "");
+      clip.setAttribute("playsinline", "");
+      clip.setAttribute("webkit-playsinline", "");
+      clip.setAttribute("x5-playsinline", "");
+      clip.setAttribute("preload", "metadata");
+      clip.setAttribute("muted", "");
+      clip.dataset.start = String(start);
+      clip.src = TASK.media.split("#")[0] + "#t=" + start;
+      clip.addEventListener("loadedmetadata", function () {
+        try { clip.currentTime = start; } catch (e) { /* the #t= fragment still applies */ }
+      });
+      card.appendChild(clip);
+      card.appendChild(el("div", "clip-cap", "视频已停在第 " + start + " 秒附近,点播放就能看到这是哪里、是什么"));
+    }
 
     var spec = el("input"); spec.type = "text"; spec.placeholder = "例如 400G、1KG、5.5LB"; spec.value = a.spec;
     spec.addEventListener("input", function () { a.spec = spec.value; a.touched = true; persist(); refresh(); status(); });
