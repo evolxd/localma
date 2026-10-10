@@ -127,7 +127,11 @@ function render() {
   if (!TASK) {
     var inv = $("invalid");
     inv.style.display = "block";
-    inv.textContent = "这个链接打不开任务,请让对方重新发一次链接。";
+    if (/[#&]t=/.test(location.hash || "")) {
+      inv.textContent = "链接不完整,可能在转发时被截断了。请让对方重新发一次,并把整条链接点开(不要只复制一半)。";
+    } else {
+      inv.textContent = "这个页面需要从发给你的消息里点完整链接才能打开。请回到微信,点对方发来的那条链接。";
+    }
     $("make").disabled = true;
     return;
   }
