@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Localma 补充信息</title>
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --ink:#1a1a1a; --mut:#666; --line:#ddd; --ok:#1a7f37; --warn:#b26a00; --bad:#c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161616; --card:#222; --ink:#eee; --mut:#aaa; --line:#3a3a3a; --ok:#4cc26a; --warn:#e0a030; --bad:#ef6a6a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.5 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:520px; margin:0 auto; padding:16px 16px 140px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin:12px 0; }
+  .card.done { border-color:var(--ok); }
+  .id { font-weight:700; }
+  .chip { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; margin-left:6px;
+          color:var(--bad); border:1px solid var(--bad); }
+  .hint { color:var(--warn); font-size:13px; margin-top:4px; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 2px; }
+  input[type=text], input[type=number], textarea {
+    width:100%; padding:12px; font-size:17px; border:1px solid var(--line); border-radius:8px;
+    background:var(--card); color:var(--ink); }
+  .chk { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:15px; }
+  .chk input { width:20px; height:20px; }
+  .err { color:var(--bad); font-size:13px; margin-top:6px; }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:var(--bg); border-top:1px solid var(--line);
+         padding:10px 16px; }
+  .bar-in { max-width:520px; margin:0 auto; display:flex; gap:8px; align-items:center; }
+  button { padding:12px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card);
+           color:var(--ink); font:inherit; cursor:pointer; }
+  button.primary { background:var(--ink); color:var(--bg); border-color:var(--ink); flex:1; }
+  textarea.out { min-height:220px; font-size:14px; font-family:ui-monospace,Consolas,monospace; }
+  #result { display:none; }
+  .step { font-size:14px; margin:8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>补充商品信息</h1>
+  <div class="sub" id="meta"></div>
+  <div class="sub" id="invalid" style="display:none;color:var(--bad)"></div>
+  <div id="list"></div>
+
+  <div id="result" class="card">
+    <b>回复已生成</b>
+    <div class="step">1. 点「复制回复」,或点「用微信发送」。</div>
+    <div class="step">2. 粘贴到发给我的微信对话里,发出去就完成了。</div>
+    <div class="step">3. 价签和包装的照片,请直接在微信里另外发给我。</div>
+    <textarea class="out" id="reply" readonly></textarea>
+    <div class="bar-in" style="margin-top:8px">
+      <button class="primary" id="copy">复制回复</button>
+      <button id="share" style="display:none">用微信发送</button>
+    </div>
+  </div>
+</div>
+
+<div class="bar"><div class="bar-in">
+  <span class="sub" id="progress"></span>
+  <span style="flex:1"></span>
+  <button class="primary" id="make">生成回复</button>
+</div></div>
+
+<script>
+function $(id) { return document.getElementById(id); }
+
+function decodePayload(hash) {
+  var m = /[#&]t=([A-Za-z0-9_-]+)/.exec(hash || "");
+  if (!m) return null;
+  var b64 = m[1].replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  try {
+    var json = decodeURIComponent(escape(atob(b64)));
+    var data = JSON.parse(json);
+    if (!data || data.v !== 1 || !Array.isArray(data.items)) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+var TASK = decodePayload(location.hash);
+var KEY = "localma_agent_" + (TASK ? (TASK.store || "") + "_" + (TASK.date || "") + "_" + TASK.items.length : "none");
+var answers = {};
+try { answers = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { answers = {}; }
+function persist() { try { localStorage.setItem(KEY, JSON.stringify(answers)); } catch (e) { /* storage unavailable */ } }
+
+function ans(id) {
+  if (!answers[id]) answers[id] = { spec: "", price: "", missing: false, note: "" };
+  return answers[id];
+}
+
+function problems(item) {
+  var a = ans(item.id);
+  if (a.missing) return [];
+  var p = [];
+  var needSpec = item.missing.indexOf("规格") >= 0;
+  var needPrice = item.missing.indexOf("价格") >= 0;
+  if (needSpec && !String(a.spec).trim()) p.push("请填写规格(如 400G)");
+  if (needPrice) {
+    var n = Number(String(a.price).replace(/[$\s]/g, ""));
+    if (!String(a.price).trim() || isNaN(n) || n <= 0) p.push("请填写大于 0 的价格");
+  }
+  return p;
+}
+
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function field(labelText, input) {
+  var w = el("div");
+  w.appendChild(el("label", "", labelText));
+  w.appendChild(input);
+  return w;
+}
+
+function render() {
+  var list = $("list");
+  list.innerHTML = "";
+  if (!TASK) {
+    var inv = $("invalid");
+    inv.style.display = "block";
+    inv.textContent = "这个链接打不开任务,请让对方重新发一次链接。";
+    $("make").disabled = true;
+    return;
+  }
+  $("meta").textContent = (TASK.store || "") + (TASK.date ? " · " + TASK.date : "") +
+                          " · 共 " + TASK.items.length + " 项,请逐项补充";
+  TASK.items.forEach(function (item) {
+    var a = ans(item.id);
+    var card = el("div", "card" + (problems(item).length === 0 ? " done" : ""));
+    var head = el("div");
+    head.appendChild(el("span", "id", item.id));
+    head.appendChild(document.createTextNode(" " + (item.name || "(名称待确认)")));
+    item.missing.forEach(function (m) { head.appendChild(el("span", "chip", "缺" + m)); });
+    card.appendChild(head);
+    var sub = [];
+    if (item.sec) sub.push("视频约第 " + item.sec + " 秒");
+    if (item.hint) sub.push("视频里读到:" + item.hint);
+    if (sub.length) card.appendChild(el("div", "hint", sub.join(" · ")));
+
+    var spec = el("input"); spec.type = "text"; spec.placeholder = "例如 400G、1KG、5.5LB"; spec.value = a.spec;
+    spec.addEventListener("input", function () { a.spec = spec.value; persist(); status(); });
+    var price = el("input"); price.type = "number"; price.step = "0.01"; price.min = "0";
+    price.setAttribute("inputmode", "decimal"); price.placeholder = "标签上的价格,如 3.28"; price.value = a.price;
+    price.addEventListener("input", function () { a.price = price.value; persist(); status(); });
+    if (item.missing.indexOf("规格") >= 0) card.appendChild(field("规格(包装上的净含量)", spec));
+    if (item.missing.indexOf("价格") >= 0) card.appendChild(field("价格($,价签上的数字)", price));
+
+    var note = el("input"); note.type = "text"; note.placeholder = "促销价、2 件优惠、只有部分尺寸等"; note.value = a.note;
+    note.addEventListener("input", function () { a.note = note.value; persist(); });
+    card.appendChild(field("备注(可不填)", note));
+
+    var chk = el("label", "chk");
+    var cb = el("input"); cb.type = "checkbox"; cb.checked = a.missing;
+    cb.addEventListener("change", function () { a.missing = cb.checked; persist(); render(); });
+    chk.appendChild(cb);
+    chk.appendChild(document.createTextNode("店里没有这个商品 / 找不到"));
+    card.appendChild(chk);
+
+    var errs = problems(item);
+    if (errs.length) card.appendChild(el("div", "err", errs.join(";")));
+    list.appendChild(card);
+  });
+  status();
+}
+
+function status() {
+  if (!TASK) return;
+  var done = TASK.items.filter(function (i) { return problems(i).length === 0; }).length;
+  $("progress").textContent = "已完成 " + done + " / " + TASK.items.length;
+}
+
+function clean(s) { return String(s).replace(/[|=\n\r]/g, " ").trim(); }
+
+function buildReply() {
+  var lines = ["LOCALMA-REPLY v1", "店:" + clean(TASK.store || "") + " 日期:" + clean(TASK.date || "")];
+  TASK.items.forEach(function (item) {
+    var a = ans(item.id);
+    if (a.missing) { lines.push(item.id + "|缺货=1" + (a.note ? "|备注=" + clean(a.note) : "")); return; }
+    var parts = [item.id];
+    if (item.missing.indexOf("规格") >= 0) parts.push("规格=" + clean(a.spec));
+    if (item.missing.indexOf("价格") >= 0) parts.push("价格=" + String(Number(String(a.price).replace(/[$\s]/g, ""))));
+    if (a.note) parts.push("备注=" + clean(a.note));
+    lines.push(parts.join("|"));
+  });
+  return lines.join("\n");
+}
+
+$("make").addEventListener("click", function () {
+  if (!TASK) return;
+  var bad = TASK.items.filter(function (i) { return problems(i).length > 0; });
+  if (bad.length) {
+    alert("还有 " + bad.length + " 项没填完:" + bad.map(function (i) { return i.id; }).join("、"));
+    return;
+  }
+  $("reply").value = buildReply();
+  $("result").style.display = "block";
+  $("result").scrollIntoView && $("result").scrollIntoView();
+  if (navigator.share) $("share").style.display = "inline-block";
+});
+$("copy").addEventListener("click", function () {
+  var t = $("reply");
+  t.select();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t.value);
+    else document.execCommand("copy");
+  } catch (e) { /* the text stays selected so it can be copied by hand */ }
+});
+$("share").addEventListener("click", function () {
+  try { navigator.share({ text: $("reply").value }); } catch (e) { /* user cancelled */ }
+});
+
+render();
+</script>
+</body>
+</html>
